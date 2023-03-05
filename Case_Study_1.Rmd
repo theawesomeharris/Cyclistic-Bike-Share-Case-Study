@@ -1,0 +1,580 @@
+---
+title: "Case study of How Does a Bike-Share Navigate Speedy Success?"
+author: "Saw Jing Xien"
+date: "2023-01-13"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+## 1.0 Introduction
+
+In 2016, Cyclistic launched a successful bike-share program in Chicago and has more than 5800 bicycles and 600 docking stations.
+
+Moreno, the Marketing Director believes that maximizing the number of annual members will be key to company's future growth. Hence, the marketing analyst team wants to understand from the historical data how the casual riders and annual riders, use the service differently.
+
+The marketing team will design a new marketing strategy to convert casual riders into annual members from these insights. To understand the user trends, this report will present the findings in the following structure:
+
+-   Number of trips completed by user type
+
+-   Total distance (in kilometers) traveled by user type
+
+-   Hours cycled by user type
+
+-   Bike preference by user type
+
+-   Number of rides completed by month by user type
+
+-   Number of rides completed by day by user type
+
+-   Top 5 start station by user types
+
+-   Top 5 end station by user types
+
+## 2.0 Setting up my environment
+
+Notes: setting up my environment by loading following packages and libraries.
+
+```{r loading_packages, message=FALSE, warning=FALSE, include=FALSE}
+install.packages("rtools", repos = "http://cran.rstudio.com/")
+install.packages("r package", repos = "http://cran.rstudio.com/")
+install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+install.packages("lubridate", repos = "http://cran.us.r-project.org")
+install.packages("geosphere", repos = "http://cran.us.r-project.org")
+
+library(tidyverse) #for data import and wrangling
+library(lubridate) #for wrangling date attributes
+library(ggplot2) #for data visualizations
+library(dplyr) #for data manipulation
+library(geosphere) #for geographical location
+library(scales) #for scaling plot
+```
+
+## 3.0 Importing & Merging Data
+
+The original dataset of the past 12 months (Jan 2022 to Dec 2022) can be downloaded from this [link](https://divvy-tripdata.s3.amazonaws.com/index.html).
+
+(Notes: Cyclistic is a fictional company for the purpose of this case study. The data has been made available by Motivate International Inc. under this [license](https://www.divvybikes.com/data-license-agreement))
+
+```{r Import_data downloaded .csv files into RStudio, message=FALSE, include=FALSE}
+M01_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202201-divvy-tripdata.csv")
+M02_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202202-divvy-tripdata.csv")
+M03_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202203-divvy-tripdata.csv")
+M04_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202204-divvy-tripdata.csv")
+M05_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202205-divvy-tripdata.csv")
+M06_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202206-divvy-tripdata.csv")
+M07_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202207-divvy-tripdata.csv")
+M08_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202208-divvy-tripdata.csv")
+M09_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202209-divvy-tripdata.csv")
+M10_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202210-divvy-tripdata.csv")
+M11_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202211-divvy-tripdata.csv")
+M12_2022 <- read.csv("D:/R scripts/R - Case study 1/Data v1/202212-divvy-tripdata.csv")
+
+```
+
+```{r Inspect_structure of dataframes and look for inconsistencies before merging, include=FALSE}
+str(M01_2022)
+str(M02_2022)
+str(M03_2022)
+str(M04_2022)
+str(M05_2022)
+str(M06_2022)
+str(M07_2022)
+str(M08_2022)
+str(M09_2022)
+str(M10_2022)
+str(M11_2022)
+str(M12_2022)
+
+```
+
+```{r Merge_data into one dataframe}
+all_trips <- bind_rows(M01_2022, M02_2022, M03_2022, M04_2022
+                       , M05_2022, M06_2022, M07_2022, M08_2022
+                       , M09_2022, M10_2022, M11_2022, M12_2022)
+```
+
+## 4.0 Cleaning & Transforming Data
+
+#### a) Check for NA data
+
+```{r NA_check}
+check_na <- function(df) {
+  sapply(df, function(x) {
+    sum(is.na(x))
+  })
+}
+
+check_na(all_trips)
+```
+
+Notice that end_lat and and end_lng have 5858 rows of "NA".
+
+```{r Investigate_NA_data}
+
+head(subset(all_trips, is.na(all_trips$end_lat | all_trips$end_lng)))
+
+```
+
+Notice that the end_station_name and end_station_id are missing as well. Hence these data will be omitted as "bad" data later as there is no way to fix.
+
+#### b) Check structure of dataset
+
+```{r structure_check}
+str(all_trips)
+```
+
+Notice there is min. 0 in end_lat and end_lng in 8 rows.
+
+```{r Investigate_further}
+subset(all_trips, all_trips$end_lat == 0 | all_trips$end_lng == 0)
+```
+
+It turns out all the missing data belongs to end_station_name = "Green St & Madison Ave\*" where the coordinates are end_lat = 41.88183 and end_lng = -87.64883 available in other rows which will be corrected:-
+
+```{r subset for Green St & Madison Ave*}
+subset(all_trips
+       , all_trips$end_station_name == "Green St & Madison Ave*" 
+         & all_trips$end_lat == 0 | all_trips$end_lng == 0)
+```
+
+```{r Correct the end_lat and end_lng values}
+all_trips <- all_trips %>% 
+  mutate(end_lat = if_else(end_lat == 0, 41.88183, end_lat)) %>%
+  mutate(end_lng = if_else(end_lng == 0, -87.64883, end_lng))
+```
+
+#### c) Add time-related variables
+
+```{r Add_time_related_columns}
+
+all_trips$date <- as.Date(all_trips$started_at)
+all_trips$day <- format(as.Date(all_trips$date),"%d")
+all_trips$month <- format(as.Date(all_trips$date),"%m")
+all_trips$year <- format(as.Date(all_trips$date),"%Y")
+all_trips$day_of_week <- format(as.Date(all_trips$date),"%A")
+```
+
+#### d) Add new variables ride_length and distance
+
+```{r Add_column_for_ride_length_in_seconds}
+all_trips$ride_length <- difftime(all_trips$ended_at, all_trips$started_at)
+```
+
+```{r Convert_ride_length_to_numeric}
+all_trips$ride_length <- as.numeric(as.character(all_trips$ride_length))
+is.numeric(all_trips$ride_length)
+```
+
+```{r Add_column_for_distance}
+all_trips$distance <- round(distHaversine(cbind(all_trips$start_lng
+                                                , all_trips$start_lat)
+                                          , cbind(all_trips$end_lng
+                                          , all_trips$end_lat))*0.001,3)
+```
+
+#### e) Recheck dataset
+
+```{r Check_structure}
+str(all_trips)
+```
+
+```{r Check_summary}
+summary(all_trips)
+```
+
+```{r Check_missing_station_names}
+head(subset(all_trips, all_trips$start_station_name == "" |
+                   all_trips$end_station_name == "")) # 1298357 rows
+```
+
+#### f) Limitation of dataset
+
+-   Negative value in Min. ride_length. These rows to be omitted as "bad" data.
+
+-   689 hours in Max. ride_length
+
+```{r Check_max_ride_length}
+subset(all_trips, all_trips$distance > 30)
+```
+
+```{r Check_problematic_station_name}
+subset(all_trips, all_trips$start_station_id == "Pawel Bialowas - Test- PBSC charging station")
+
+```
+
+Note: Pawel Bialowas - Test- PBSC charging station to be omitted as "bad" data as it is for maintenance/testing (1 row)
+
+-   0 km in Min. distance. These rows of short distance to be retained as no definition has been given for "bad" data in this regard. In real case scenario a definition should be fixed to filter "bad" data.
+
+-   1190 km in Max. distance. The row causing this is the Pawel Bialowas - Test- PBSC charging station which will be omitted.
+
+-   NA values in distance resulted from NA end_lat and end_lng which will be omitted.
+
+-   1,298,357 rows of either start_station_name or end_station_name are missing (\~23% of total). The impact of missing station names is probably only on the geographical analysis of the data. It can be fixed by backtracking the coordinates of the available data. For further studies, an exploratory analysis is required. These data will be left as it is for now.
+
+#### g) Create a new dataframe for analysis
+
+```{r Create_new_dataframe_v2}
+all_tripsv2 <- all_trips[!(all_trips$end_station_id 
+                           == "Hubbard Bike-checking (LBS-WH-TEST)" |
+                           all_trips$ride_length <= 0 |
+                           all_trips$start_station_id 
+                           == "Pawel Bialowas - Test- PBSC charging station"                            ), ]
+```
+
+```{r Omit_NA_values}
+all_tripsv2 <- na.omit(all_tripsv2)
+
+```
+
+```{r Recheck_new_dataframe}
+str(all_tripsv2)
+summary(all_tripsv2)
+```
+
+Note: The max ride_length is 22 days long. This will be assumed as normal data as there is no further information.
+
+```{r Fix_order_of_day_of_week}
+all_tripsv2$day_of_week <- ordered(all_tripsv2$day_of_week
+                                   , levels=c("Sunday", "Monday"
+                                              , "Tuesday", "Wednesday"
+                                              , "Thursday", "Friday"
+                                              , "Saturday"))
+```
+
+## 5.0 Data Analysis
+
+#### 5.1 Study scope
+
+The report analyzes user trends based on historical data of Cyclistic from Jan 2022 to Dec 2022.
+
+```{r Aggregate_dataset_by_weekday, eval=FALSE, include=FALSE}
+all_tripsv2 %>%
+  mutate(weekday = wday(started_at, label = TRUE)) %>% #creates weekday field 
+  group_by(member_casual, weekday) %>% #grouping
+  summarise(number_of_rides = n() #calculate
+            , average_duration = round(mean(ride_length)/60, 0) #in minutes                    , average_distance = round(mean(distance),0)
+            , total_duration = round(sum(ride_length)/60/60, 0) #in hours
+            , total_distance = round(sum(distance),0)) %>% #in km
+  arrange(member_casual, weekday) #sorts the table
+```
+
+```{r Aggregate_dataset_by_month, eval=FALSE, include=FALSE}
+all_tripsv2 %>%
+  mutate(month = month(started_at, label = TRUE)) %>% #creates month field 
+  group_by(member_casual, month) %>% #grouping
+  summarise(number_of_rides = n() #calculate
+            , average_duration = round(mean(ride_length)/60, 0) #in minutes
+            , average_distance = round(mean(distance),0)
+            , total_duration = round(sum(ride_length)/60/60, 0) #in hours
+            , total_distance = round(sum(distance),0)) %>% #in km
+  arrange(member_casual, month) #sorts the table
+```
+
+```{r Create_aggregated_dataframes, warning=FALSE, message=FALSE}
+Trips_wday <- all_tripsv2 %>%
+                mutate(weekday = wday(started_at, label = TRUE)) %>% 
+                group_by(member_casual, weekday) %>% 
+                summarise(number_of_rides = n() 
+                          , average_duration = round(mean(ride_length)/60, 0)
+                          , average_distance = round(mean(distance),0)
+                          , total_duration = round(sum(ride_length)/60/60, 0)
+                          , total_distance = round(sum(distance),0)) %>%
+                arrange(member_casual, weekday)
+
+Trips_mth  <- all_tripsv2 %>%
+                mutate(month = month(started_at, label = TRUE)) %>% 
+                group_by(member_casual, month) %>%
+                summarise(number_of_rides = n() 
+                          , average_duration = round(mean(ride_length)/60, 0)
+                          , average_distance = round(mean(distance),0)
+                          , total_duration = round(sum(ride_length)/60/60, 0)
+                          , total_distance = round(sum(distance),0)) %>% 
+                arrange(member_casual, month)
+```
+
+#### 5.2 Number of trips completed by user type
+
+```{r message=FALSE, warning=FALSE}
+all_tripsv2 %>%
+  ggplot(aes(x = member_casual)) +
+    geom_bar(fill = "Blue") +
+    labs(
+      title = "Number of Trips by User Type",
+      subtitle = "in 2022", 
+      x = "User Type",
+      y = "Number of Trips (millions)") +
+    scale_y_continuous(labels = label_number(suffix = "", scale = 1e-6)) +
+    geom_text(stat = "count", aes(label = ..count..), vjust=+2, color="Yellow")
+
+```
+
+Casual riders made 18% less trips compared to member.
+
+```{r Plot_1}
+all_tripsv2 %>%
+  ggplot(aes(x = member_casual)) +
+    geom_bar(fill = "Blue") +
+    labs(
+      title = "Number of Trips by User Type",
+      subtitle = "in 2022", 
+      x = "User Type",
+      y = "Number of Trips (millions)") +
+    scale_y_continuous(labels = label_number(suffix = "", scale = 1e-6)) +
+    geom_text(stat = "count", aes(label = ..count..), vjust=+2, color="Yellow")
+
+```
+
+```{r Plot_2 Comparison of Monthly Number of Trips by User Type, message=FALSE, warning=FALSE}
+Trips_mth %>%
+  ggplot(aes(x = month, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Monthly Number of Trips by User Type"
+       , subtitle = "in 2022", x = "Month", y = "Number of Trips"
+       , fill = "User Type") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1))
+
+```
+
+```{r Plot_3 Comparison of Weekly Number of Trips by User Type, message=FALSE, warning=FALSE}
+Trips_wday %>%
+  ggplot(aes(x = weekday, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Weekly Number of Trips by User Type"
+       , subtitle = "in 2022", x = "Weekday", y = "Number of Trips"
+       , fill = "User Type") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1))
+
+```
+
+#### 5.3 Distance traveled by user type
+
+```{r Plot_4 Comparison of Total Distance Traveled by User Type, message=FALSE, warning=FALSE}
+Trips_mth %>%
+  group_by(member_casual) %>%
+  summarize(total_distance = sum(total_distance)) %>%
+  ggplot(aes(x = member_casual, y = total_distance)) +
+  geom_col(position = "dodge", fill = "Blue") +
+  labs(title = "Comparison of Total Distance Traveled by User Type"
+       , subtitle = "in 2022"
+       , x = "User Type", y = "Total Distance Traveled (km)") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1)) +
+  geom_text(aes(label = stat(round(y),0)), vjust=+2, color="Yellow")
+
+```
+
+```{r Plot_5 Comparison of Monthly Total Distance Traveled by User Type, message=FALSE, warning=FALSE}
+Trips_mth %>%
+  ggplot(aes(x = month, y = total_distance, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Monthly Total Distance Traveled by User Type"
+       , subtitle = "in 2022", x = "Month", y = "Total Distance Traveled (km)"
+       , fill = "User Type") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1))
+```
+
+```{r Plot_6 Comparison of Weekly Total Distance Traveled by User Type, message=FALSE, warning=FALSE}
+Trips_wday %>%
+  ggplot(aes(x = weekday, y = total_distance, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Weekly Total Distance Traveled by User Type"
+       , subtitle = "in 2022", x = "Weekday", y = "Total Distance Traveled (km)"
+       , fill = "User Type") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1)) 
+```
+
+Members and casual riders have about the same average distance traveled.
+
+```{r message=FALSE, warning=FALSE}
+all_tripsv2 %>%
+  group_by(member_casual) %>%
+  summarise(ave_distance = mean(distance))
+```
+
+#### 5.4 Hours cycled by user type
+
+Casual riders cycled 10% longer total hours compared to members.
+
+```{r Plot_7 Comparison of Total Hours Cycled by User Type, message=FALSE, warning=FALSE}
+
+Trips_mth %>%
+  group_by(member_casual) %>%
+  summarize(total_duration = sum(total_duration)) %>%
+  ggplot(aes(x = member_casual, y = total_duration)) +
+  geom_col(position = "dodge", fill = "Blue") +
+  labs(title = "Comparison of Total Hours Cycled by User Type"
+       , subtitle = "in 2022"
+       , x = "User Type", y = "Total Hours Cycled") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1)) +
+  geom_text(aes(label = stat(round(y),0)), vjust=+2, color="Yellow")
+
+```
+
+```{r Plot_8 Comparison of Monthly Total Hours Cycled by User Type}
+Trips_mth %>%
+  ggplot(aes(x = month, y = total_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Monthly Total Hours Cycled by User Type"
+       , subtitle = "in 2022", x = "Month", y = "Total Hours Cycled"
+       , fill = "User Type") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1))
+```
+
+```{r Plot_9 Comparison of Weekly Total Hours Cycled by User Type}
+Trips_wday %>%
+  ggplot(aes(x = weekday, y = total_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Weekly Total Hours Cycled by User Type"
+       , subtitle = "in 2022", x = "Weekday", y = "Total Hours Cycled"
+       , fill = "User Type") +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1))
+```
+
+Casual riders tend to cycle longer duration on average compared to members.
+
+```{r Average_Minutes_Cycled, message=FALSE, warning=FALSE}
+all_tripsv2 %>%
+  group_by(member_casual) %>%
+  summarise(ave_minutes = round(mean(ride_length)/60,1))
+```
+
+#### 5.5 Bike Preference by User Type
+
+```{r Create_dataframe_for_bike_preference, message=FALSE, warning=FALSE}
+bike_preference <- all_tripsv2 %>%
+  group_by(rideable_type, member_casual) %>% 
+  summarise(number_of_rides = n()
+            , average_duration = round(mean(ride_length)/60, 0)                                , average_distance = round(mean(distance),0)
+            , total_duration = round(sum(ride_length)/60/60, 0)
+            , total_distance = round(sum(distance),0)) %>% 
+  arrange(member_casual, rideable_type)
+```
+
+It is found that member does not use docked_bike at all.
+
+For correct visualization, add the docked_bike data for member as 0.
+
+```{r Add_0_docked_bike_for_member, message=FALSE, warning=FALSE}
+bike_preference[nrow(bike_preference)+1, ] <- list("docked_bike", "member", 0, 0
+                                                   , 0, 0, 0)
+
+bike_preference <- bike_preference %>%  
+  arrange(member_casual, rideable_type)
+```
+
+```{r Plot_10 Comparison of Bike Preference by User Type, message=FALSE, warning=FALSE}
+bike_preference %>%
+  ggplot(aes(x = member_casual, y = number_of_rides, fill = rideable_type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Comparison of Bike Preference by User Type (Number of Trips)"
+       , subtitle = "in 2022", x = "User Type", y = "Number of Trips"
+       , fill = "Type of Ride")
+```
+
+```{r Plot_11 Comparison of Bike Preference by User Type, message=FALSE, warning=FALSE}
+bike_preference %>%
+  ggplot(aes(x = member_casual, y = total_distance, fill = rideable_type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Comparison of Bike Preference by User Type (Total Distance Traveled)"
+       , subtitle = "in 2022", x = "User Type", y = "Total Distance Traveled (km)"
+       , fill = "Type of Ride") + ylim(0, 4000000) +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1)) #+
+```
+
+```{r Plot_12 Comparison of Bike Preference by User Type, message=FALSE, warning=FALSE}
+bike_preference %>%
+  ggplot(aes(x = member_casual, y = total_duration, fill = rideable_type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Comparison of Bike Preference by User Type (Total Hours Cycled)"
+       , subtitle = "in 2022", x = "User Type", y = "Total Hours Cycled"
+       , fill = "Type of Ride") + ylim(0, 400000) +
+  scale_y_continuous(labels = label_number(suffix = "", scale = 1)) #+
+
+```
+
+#### 5.6 Top 5 Start Stations by User Types
+
+```{r Aggregate_dataframe_for_Start_Station_and_End_Station, message=FALSE, warning=FALSE}
+Popular_Start_Station <- all_tripsv2 %>%
+  group_by(start_station_name, member_casual) %>%
+  summarise(number_of_rides = n()) %>%
+  arrange(member_casual, desc(number_of_rides))
+
+Popular_End_Station <- all_tripsv2 %>%
+  group_by(end_station_name, member_casual) %>%
+  summarise(number_of_rides = n()) %>%
+  arrange(desc(number_of_rides))
+```
+
+```{r Top_5_Start_Stations_for_Members, message=FALSE, warning=FALSE}
+top5_startst_member <- head(subset(Popular_Start_Station, member_casual 
+                                   == "member" & start_station_name != ""), 5)
+top5_startst_member
+```
+
+```{r Top_5_Start_Stations_for_Casual_Riders, message=FALSE, warning=FALSE}
+top5_startst_casual <- head(subset(Popular_Start_Station, member_casual == "casual" & start_station_name != ""), 5)
+top5_startst_casual
+```
+
+#### 5.7 Top 5 End Stations by User Types
+
+```{r Top_5_End_Stations_for_Members, message=FALSE, warning=FALSE}
+top5_endst_member <- head(subset(Popular_End_Station, member_casual == "member" & end_station_name != ""), 5)
+top5_endst_member
+```
+
+```{r Top_5_End_Stations_for_Casual_Riders}
+top5_endst_casual <- head(subset(Popular_End_Station, member_casual == "casual" & end_station_name != ""), 5)
+top5_endst_casual
+```
+
+## 6.0 Discussion
+
+-   In 2022, casual members made 18% less trips and 16% less distance compared to members.
+
+-   However casual members cycled 10% longer hours.
+
+-   Members and casual riders have about the same average distance traveled.
+
+-   Casual riders tend to cycle longer duration on average compared to members.
+
+-   In Chicago, the summers are warm, humid, and wet; the winters are freezing, snowy, and windy. There are 4 seasons throughout the year as follow.
+
+    -   Spring: March to May
+
+    -   Summer: June to August
+
+    -   Autumn: September to November
+
+    -   Winter: December to January
+
+-   The user trends no doubt follow the pattern of the 4 seasons as shown in Plot 2, 5 and 8 where the users are more likely to ride in warmer weather compared to colder weather.
+
+-   In Plot 3 and 6, there is visible tendency of casual riders to rent bikes on weekends, which suggests that casual riders are predominantly renting the bike for leisure purpose, as confirmed by the top 5 start and end stations for casual riders which are all at the location of recreational facilities. This could mean that the casual riders are most likely families coming out for leisure on weekend.
+
+-   However the members are less likely to be active on riding on weekend as the bike rental decreases from Friday to Sunday. This could mean the existing members are predominantly people who use the bike for non-leisure purpose, as confirmed by the top 5 start and end stations for members which are all locations of residential areas.
+
+-   Electric bike is more popular among the casual riders compared to classic bike and docked bike.
+
+-   Members do not use the docked bike at all. The proportion of usage of classic bike and electric bike are fairly similar.
+
+## 7.0 Recommendations
+
+-   Organize promotional events at the popular locations for casual riders, especially on weekends to convert them into members.
+
+-   Push promotional member rates for weekday rides only to encourage casual riders who only ride on weekdays to sign up as members.
+
+-   Conduct market surveys for casual riders to find out their tendencies to sign up as members if there were bike stations near their residential areas. If result turns out to be positive, more bike stations can be installed at these locations.
+
+-   Push promotional rates during non-peak seasons to encourage riders to sign up as members.
+
+## 8.0 Further exploration
+
+-   Find out why there is about a quarter of missing data in the system for station_name and station_id. Recommend for system improvement.
+
+-   For existing data, exploratory analysis is recommended for missing data above to fine-tune the popular stations location.
+
+-   Carry out site survey to find out the capacity vs demand of the bike stations to see whether there is a need for expansion of more bikes and stations.
